@@ -1,8 +1,7 @@
 #include <SPI.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_PCD8544.h>
-
- Adafruit_PCD8544 display = Adafruit_PCD8544(14, 15, 16);
+Adafruit_PCD8544 display = Adafruit_PCD8544(14, 15, 16);// DC/CE/RST
 #define BOARD_WIDTH 51
 #define BOARD_HEIGHT 48
 #define max_snake_length 500
@@ -12,6 +11,7 @@
 #define RIGHT_BUTTON 6
 #define LEFT_BUTTON 4
 #define default_game_speed 500
+#define max_game_speed 40
 typedef enum {UP,DOWN,LEFT,RIGHT} direction;
 enum snake_state{HIT_BODY, HIT_BORDER,HIT_FOOD,NO_HIT};
 enum {NO_INTERRUPT, INTERRUPT_UP, INTERRUPT_DOWN, INTERRUPT_LEFT, INTERRUPT_RIGHT} interrupt_event;
@@ -88,7 +88,7 @@ void spawn_food(int *food_pos, int*snake, int snake_length)
   int spawn_body=0;
   while(spawn_border==0||spawn_body==0)
   {
-  *food_pos=random(BOARD_WIDTH+1,(BOARD_WIDTH-1)*(BOARD_HEIGHT-1));
+  *food_pos=random(BOARD_WIDTH+1,(BOARD_WIDTH-1)*(BOARD_HEIGHT-1)); // random on space we maybe able to spawn
   for(int i=0;i<snake_length;i++)
   {
     if(*food_pos==snake[i])
@@ -104,7 +104,7 @@ void spawn_food(int *food_pos, int*snake, int snake_length)
   if( (*food_pos) % BOARD_WIDTH==0 || 
       (*food_pos) % BOARD_WIDTH==(BOARD_WIDTH-1) ||
       (*food_pos) <=BOARD_WIDTH ||
-      ((*food_pos)>=(BOARD_WIDTH*(BOARD_HEIGHT-1)) && (*food_pos)<=((BOARD_WIDTH*BOARD_HEIGHT)-1))) spawn_border=0;
+      ((*food_pos)>=(BOARD_WIDTH*(BOARD_HEIGHT-1)) && (*food_pos)<=((BOARD_WIDTH*BOARD_HEIGHT)-1))) spawn_border=0;  // spawn on border=> respawn
   else spawn_border=1; // good to go
   }
 }
@@ -168,6 +168,53 @@ void interrupt_handle()
       }
   }
 }
+int can_increase_speed(direction snake_direction)
+{
+  switch(snake_direction)
+  {
+    case UP:
+    {
+      if(digitalRead(DOWN_BUTTON)==0) return 0; // can't increase speed because opposite movement
+      else
+      {
+        if(digitalRead(2)==1) return 0; // can't incease speed because no button holding
+        else return 1; // now we can
+      }
+      break; // just in case
+    }
+    case DOWN:
+    {
+      if(digitalRead(UP_BUTTON)==0) return 0; // can't increase speed because opposite movement
+      else
+      {
+        if(digitalRead(2)==1) return 0; // can't incease speed because no button holding
+        else return 1; // now we can
+      }
+      break; // just in case
+    }
+    case LEFT:
+    {
+      if(digitalRead(RIGHT_BUTTON)==0) return 0; // can't increase speed because opposite movement
+      else
+      {
+        if(digitalRead(2)==1) return 0; // can't incease speed because no button holding
+        else return 1; // now we can
+      }
+      break; // just in case
+    }
+    case RIGHT:
+    {
+      if(digitalRead(LEFT_BUTTON)==0) return 0; // can't increase speed because opposite movement
+      else
+      {
+        if(digitalRead(2)==1) return 0; // can't incease speed because no button holding
+        else return 1; // now we can
+      }
+      break; // just in case
+    }
+  }
+  return 0;
+}
 void setup()
 {
  pinMode(UP_BUTTON,INPUT_PULLUP);
@@ -181,7 +228,7 @@ void setup()
  display.drawRect(0,0,BOARD_WIDTH,BOARD_HEIGHT,WHITE);
  display.display();
  attachInterrupt(0,interrupt_handle,FALLING);
- randomSeed(analogRead(5));
+ randomSeed(analogRead(5)); // just read random noise to random spawn food
  Serial.begin(9600);
 }
 void loop()
@@ -192,8 +239,8 @@ void loop()
  SNAKE[0]=default_snake_pos;
  SNAKE[1]=default_snake_pos-1;
  SNAKE[2]=default_snake_pos-2;
- direction snake_direction=RIGHT;
- spawn_food(&food_pos,SNAKE,current_snake_length);
+ direction current_snake_direction=RIGHT;
+ spawn_food(&food_pos,SNAKE,current_snake_length); // spawn first food
  int game_speed=default_game_speed;
  int score=0;
  uint64_t last_update=millis();
@@ -201,8 +248,8 @@ void loop()
  {
   if(millis()-last_update>=game_speed)
   {
-  update_snake_pos(SNAKE,current_snake_length,snake_direction); // update_snake_position
-  if(get_snake_state(SNAKE,current_snake_length,food_pos) == HIT_BORDER || get_snake_state(SNAKE,current_snake_length,food_pos)== HIT_BODY) game_over(score); //stop game here
+  update_snake_pos(SNAKE,current_snake_length,current_snake_direction); // update_snake_position
+  if(get_snake_state(SNAKE,current_snake_length,food_pos) == HIT_BORDER || get_snake_state(SNAKE,current_snake_length,food_pos)== HIT_BODY) game_over(score); //snake hit what it shouln't hit, end game here
   else 
    {
     if( get_snake_state(SNAKE,current_snake_length,food_pos)==HIT_FOOD) 
@@ -223,22 +270,22 @@ void loop()
       {
         case INTERRUPT_UP:
           {
-            if(snake_direction!=DOWN) snake_direction=UP;
+            if(current_snake_direction!=DOWN) current_snake_direction=UP;
             break;
           }
         case INTERRUPT_DOWN:
           {
-            if(snake_direction!=UP) snake_direction=DOWN;
+            if(current_snake_direction!=UP) current_snake_direction=DOWN;
             break;
           }
         case INTERRUPT_LEFT:
           {
-            if(snake_direction!=RIGHT) snake_direction=LEFT;
+            if(current_snake_direction!=RIGHT) current_snake_direction=LEFT;
             break;
           }
         case INTERRUPT_RIGHT:
           {
-            if(snake_direction!=LEFT) snake_direction=RIGHT;
+            if(current_snake_direction!=LEFT) current_snake_direction=RIGHT;
             break;
           }
       }
@@ -247,17 +294,10 @@ void loop()
    // check if holding_button
    if(digitalRead(2)==0)
    {
-    if(game_speed>40) game_speed-=5;
+    if(can_increase_speed(current_snake_direction)&&(game_speed>max_game_speed)) game_speed-=5; // let increase game speed :P
    }
    else game_speed=default_game_speed;
    // let display_board
    draw_board(SNAKE,current_snake_length,food_pos,score);
 }
 }
-
-
-
-
-
-
-
